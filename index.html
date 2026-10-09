@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Poker Pot</title>
+<style>
+  :root { --bg:#0d2a1f; --card:#143828; --ink:#f2efe6; --dim:#8fb5a1; --gold:#f5c542; --red:#e5584f; --grn:#3fb97a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:18px/1.3 system-ui,sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:16px; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .pot { font-size:14px; color:var(--dim); } .pot b { display:block; font-size:44px; color:var(--gold); line-height:1; }
+  .p { background:var(--card); border-radius:16px; padding:14px; margin-bottom:12px; }
+  .p.out { opacity:.4; }
+  .top { display:flex; justify-content:space-between; align-items:baseline; }
+  .name { font-size:24px; font-weight:600; }
+  .stack { font-size:52px; font-weight:800; line-height:1; color:var(--gold); }
+  .gain { color:var(--grn); font-size:26px; margin-left:8px; animation:pop .6s; }
+  @keyframes pop { from { transform:scale(1.8); opacity:0 } }
+  .st { font-size:15px; color:var(--dim); margin:4px 0 10px; }
+  .row { display:flex; gap:8px; margin-bottom:8px; }
+  .row > * { flex:1; min-width:0; }
+  input, button { font:inherit; border:0; border-radius:12px; padding:0 10px; height:56px; }
+  input { background:#0d2a1f; color:var(--ink); }
+  button { background:#2a5a44; color:var(--ink); cursor:pointer; font-weight:600; }
+  button:active { transform:scale(.96); }
+  .big { height:64px; font-size:22px; }
+  .f { background:var(--red); } .w { background:var(--gold); color:#000; } .c { background:var(--grn); color:#000; }
+  .tools { display:flex; gap:4px; } .tools button { background:none; color:var(--dim); height:40px; flex:none; }
+  .add { position:sticky; bottom:0; background:var(--bg); padding:10px 0 16px; }
+  .add .row input:first-child { flex:3; } .add .row input.chips { flex:1.4; }
+  .empty { text-align:center; color:var(--dim); padding:40px 0; }
+</style>
+<main id="app"></main>
+<script src="game.js"></script>
+<script>
+let g = null, hist = [];
+try { g = JSON.parse(localStorage.g); } catch {}
+g = g || newGame([], 1000);
+const save = () => { try { localStorage.g = JSON.stringify(g); } catch {} };
+const esc = s => s.replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
+const go = fn => { hist.push(JSON.stringify(g)); fn(); save(); render(); };
+const raise = (i, v) => go(() => act(g, i, 'bet', v));
+const bet = i => raise(i, +document.getElementById('b' + i).value);
+const step = (i, n) => raise(i, maxBet(g) + n);
+const call = i => go(() => act(g, i, 'call'));
+const fold = i => go(() => act(g, i, 'fold'));
+const pick = i => go(() => win(g, i));
+const undo = () => { if (hist.length) { g = JSON.parse(hist.pop()); save(); render(); } };
+const reset = () => { if (confirm('새 게임? 모든 플레이어와 칩 기록이 사라집니다.')) { g = newGame([], 1000); hist = []; save(); render(); } };
+function add(e) {
+  e.preventDefault();
+  const name = nm.value.trim(), chips = +ch.value;
+  if (!name || !(chips > 0)) return;
+  go(() => addPlayer(g, name, chips));
+  nm.value = ''; nm.focus();
+}
+function render() {
+  const keep = { nm: window.nm && nm.value, ch: window.ch ? ch.value : 1000 };
+  const pot = g.pot + g.players.reduce((s, p) => s + p.bet, 0), m = maxBet(g);
+  app.innerHTML = `<header><div class="pot">POT<b>${pot}</b></div>
+    <div class="tools"><button onclick="undo()">↩ 되돌리기</button><button onclick="reset()">새 게임</button></div></header>` +
+    (g.players.length ? '' : '<div class="empty">아래에서 플레이어를 추가하세요</div>') +
+    g.players.map((p, i) => {
+      const need = Math.min(m - p.bet, p.stack);
+      const state = p.folded ? 'FOLD' : p.stack === 0 ? 'ALL-IN' : p.acted ? (p.bet === m ? 'CALL ✓' : 'BET ✓') : '';
+      return `<div class="p ${p.folded ? 'out' : ''}">
+        <div class="top"><span class="name">${esc(p.name)}</span><span class="stack">${p.stack}${p.gain ? `<span class="gain">+${p.gain}</span>` : ''}</span></div>
+        <div class="st">이번 라운드 베팅 ${p.bet} ${state && '· ' + state}</div>
+        ${p.folded ? '' : `
+        <div class="row">
+          <button class="big c" onclick="call(${i})">${need ? '콜 ' + need : '체크'}</button>
+          <button class="big f" onclick="fold(${i})">폴드</button>
+          <button class="big w" onclick="pick(${i})">🏆 승</button></div>
+        <div class="row">
+          <button onclick="step(${i},10)">+10</button><button onclick="step(${i},50)">+50</button>
+          <button onclick="step(${i},100)">+100</button><button onclick="raise(${i},${p.bet + p.stack})">올인</button></div>
+        <div class="row"><input id="b${i}" type="number" inputmode="numeric" placeholder="직접 입력 (총 베팅)"><button style="flex:0 0 90px" onclick="bet(${i})">베팅</button></div>`}
+      </div>`;
+    }).join('') +
+    `<form class="add" onsubmit="add(event)"><div class="row">
+      <input id="nm" placeholder="이름 입력 후 Enter" autocomplete="off">
+      <input id="ch" class="chips" type="number" inputmode="numeric" value="${keep.ch}" title="시작 칩">
+      <button class="w" style="flex:0 0 80px">추가</button></div></form>`;
+  if (keep.nm) nm.value = keep.nm;
+}
+render();
+</script>
